@@ -1,0 +1,433 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Recorrido de un pedido</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: título + pestañas de operación; a la izquierda el diagrama de capas con un pedido que viaja; a la derecha el paso actual con su código. Abajo, la tabla resumen. */
+:root{
+  --bg:#F5EEDF; --surface:#FBF7EE; --surface-2:#EFE5CF; --ink:#2B2118; --muted:#6B5B4B; --line:#D8C9AC;
+  --terra:#C0612B; --teal:#3A8C8C; --gold:#E8C84A; --gold-ink:#8A6D00; --db:#5B6B7A;
+  --code-bg:#2A241D; --code-ink:#EFE5D2; --chip-ink:#2B2118;
+  --font-body:"Trebuchet MS","Lucida Grande","Segoe UI",sans-serif;
+  --font-code:Consolas,"Liberation Mono",Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#1D1813; --surface:#27201A; --surface-2:#30281F; --ink:#EFE5D2; --muted:#B3A58F; --line:#45392C;
+    --terra:#DD7D4E; --teal:#5DB3B3; --gold:#E8C84A; --gold-ink:#E8C84A; --db:#8EA0B2;
+    --code-bg:#14100C; --code-ink:#EFE5D2; --chip-ink:#2B2118; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#1D1813; --surface:#27201A; --surface-2:#30281F; --ink:#EFE5D2; --muted:#B3A58F; --line:#45392C;
+  --terra:#DD7D4E; --teal:#5DB3B3; --gold:#E8C84A; --gold-ink:#E8C84A; --db:#8EA0B2;
+  --code-bg:#14100C; --code-ink:#EFE5D2; --chip-ink:#2B2118; color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:16px;line-height:1.55}
+.wrap{max-width:1120px;margin:0 auto;padding-block:28px 40px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+header h1{font-size:clamp(1.7rem,4vw,2.4rem);line-height:1.15;margin:0 0 .4rem;text-wrap:balance}
+header p{margin:0;color:var(--muted);max-width:62ch}
+code,pre{font-family:var(--font-code)}
+:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+
+.tabs{display:flex;flex-wrap:wrap;gap:8px;margin:22px 0 18px}
+.tab{font:inherit;font-weight:bold;border:2px solid var(--line);background:var(--surface);color:var(--ink);border-radius:999px;padding:.4rem 1rem;cursor:pointer}
+.tab:hover{border-color:var(--teal)}
+.tab[aria-selected="true"]{background:var(--terra);border-color:var(--terra);color:#fff}
+.tab small{font-weight:normal;opacity:.85;margin-left:.3rem}
+
+.stage{display:grid;grid-template-columns:minmax(0,420px) minmax(0,1fr);gap:24px;align-items:start}
+@media (max-width:860px){.stage{grid-template-columns:1fr}}
+
+.diagram{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:10px}
+.diagram svg{width:100%;height:auto;display:block}
+.legend{display:flex;flex-wrap:wrap;gap:12px;font-size:.82rem;color:var(--muted);padding:6px 6px 2px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{width:12px;height:12px;border-radius:3px;display:inline-block}
+
+/* SVG */
+.n-box{fill:var(--surface);stroke:var(--line);stroke-width:1.5;transition:fill .25s,stroke .25s}
+.n-name{fill:var(--ink);font-family:var(--font-body);font-size:15px;font-weight:bold}
+.n-sub{fill:var(--muted);font-family:var(--font-code);font-size:11.5px}
+.n-bar{transition:opacity .25s}
+.node.active .n-box{stroke-width:3}
+.node.g-pres.active .n-box{stroke:var(--terra)}
+.node.g-log.active .n-box{stroke:var(--gold-ink)}
+.node.g-per.active .n-box{stroke:var(--teal)}
+.node.g-db.active .n-box{stroke:var(--db)}
+.node.dim{opacity:.45}
+.track{stroke:var(--line);stroke-width:2;stroke-dasharray:3 5;fill:none}
+.trail{fill:none;stroke-width:3;stroke-linecap:round}
+.trail.ida{stroke:var(--terra)}
+.trail.vuelta{stroke:var(--teal)}
+.token{fill:var(--gold);stroke:var(--ink);stroke-width:2}
+.halo{fill:var(--gold);opacity:.3}
+.cyl-top{fill:var(--surface-2);stroke:var(--line);stroke-width:1.5}
+.machine{fill:var(--surface-2);fill-opacity:.55;stroke:var(--muted);stroke-width:1.5;stroke-dasharray:7 5}
+.machine-tx{fill:var(--muted);font-family:var(--font-body);font-size:12px;font-weight:bold;letter-spacing:.08em}
+.machine-sub{fill:var(--muted);font-family:var(--font-body);font-size:11.5px;font-style:italic}
+.node.g-cli.active .n-box{stroke:var(--muted)}
+
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px 22px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.meta{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.counter{font-size:.85rem;color:var(--muted);font-variant-numeric:tabular-nums;letter-spacing:.02em}
+.dir{font-size:.78rem;font-weight:bold;border-radius:999px;padding:.15rem .65rem;color:#fff}
+.dir.ida{background:var(--terra)} .dir.vuelta{background:var(--teal)} .dir.queda{background:var(--muted)}
+.panel h2{margin:0;font-size:1.35rem;line-height:1.25;text-wrap:balance}
+.panel p{margin:0;max-width:60ch}
+.travel{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:.9rem;color:var(--muted)}
+.travel b{font-family:var(--font-code);background:var(--gold);color:var(--chip-ink);padding:.2rem .6rem;border-radius:6px;font-size:.88rem;word-break:break-word}
+pre.code{background:var(--code-bg);color:var(--code-ink);border-radius:10px;padding:14px 16px;margin:0;overflow-x:auto;font-size:.86rem;line-height:1.55;white-space:pre}
+.code .k{color:#E8C84A}.code .s{color:#D7C49B}.code .c{color:#9A8F80;font-style:italic}.code .t{color:#79C7C7}
+.file{font-size:.8rem;color:var(--muted);margin-bottom:-8px}
+.note{border-left:4px solid var(--gold);background:var(--surface-2);padding:.6rem .9rem;border-radius:0 8px 8px 0;font-size:.95rem}
+.note[hidden]{display:none}
+
+.controls{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
+.btn{font:inherit;font-weight:bold;border:none;border-radius:8px;padding:.55rem 1rem;cursor:pointer;background:var(--teal);color:#fff}
+.btn.sec{background:var(--surface-2);color:var(--ink);border:1px solid var(--line)}
+.btn:disabled{opacity:.4;cursor:default}
+.jump{font:inherit;color:var(--teal);background:none;border:none;padding:0;text-decoration:underline;cursor:pointer;font-weight:bold}
+
+.steps{display:flex;gap:5px;flex-wrap:wrap}
+.dot{width:26px;height:8px;border-radius:4px;background:var(--line);border:none;padding:0;cursor:pointer}
+.dot.done{background:var(--teal)} .dot.cur{background:var(--terra)}
+
+.where{display:grid;grid-template-columns:1fr 1.4fr 1fr;gap:12px;margin-top:22px}
+@media (max-width:760px){.where{grid-template-columns:1fr}}
+.w-col{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;min-width:0}
+.w-col.srv{border:2px dashed var(--muted)}
+.w-col b{display:block;margin:.35rem 0 .2rem}
+.w-col p{margin:0;font-size:.93rem;color:var(--muted)}
+.w-tag{font-size:.72rem;font-weight:bold;letter-spacing:.06em;text-transform:uppercase;border-radius:999px;padding:.12rem .55rem;color:#fff}
+.w-tag.cli{background:var(--muted)}.w-tag.pres{background:var(--terra)}.w-tag.db{background:var(--db)}
+section.summary{margin-top:36px}
+section.summary h2{font-size:1.4rem;margin:0 0 .3rem}
+section.summary > p{color:var(--muted);margin:0 0 14px;max-width:62ch}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;min-width:720px;font-size:.92rem}
+th{background:var(--terra);color:#fff;text-align:left;padding:.6rem .8rem;font-weight:bold}
+td{padding:.6rem .8rem;border-top:1px solid var(--line);vertical-align:top}
+td code{font-size:.85rem;background:var(--surface-2);padding:.05rem .35rem;border-radius:4px}
+.pill{display:inline-block;font-size:.78rem;font-weight:bold;border-radius:999px;padding:.1rem .55rem}
+.pill.fw{background:var(--teal);color:#fff}.pill.rd{background:var(--gold);color:var(--chip-ink)}
+
+.sub{font-size:1.15rem;margin:26px 0 10px}
+table.codes{min-width:560px}
+.st{display:inline-block;font-family:var(--font-code);font-weight:bold;border-radius:6px;padding:.05rem .45rem;margin-right:.3rem;color:#fff}
+.st.ok{background:var(--teal)}.st.rd{background:var(--gold);color:var(--chip-ink)}.st.nf{background:var(--muted)}.st.er{background:var(--terra)}
+.key{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin-top:16px}
+.key div{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:.93rem}
+.key strong{display:block;margin-bottom:2px}
+
+footer{margin-top:36px;padding-top:12px;border-top:1px solid var(--line);color:var(--muted);font-size:.85rem}
+@media (prefers-reduced-motion: reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Recorrido de un pedido</h1>
+    <p>Qué pasa, capa por capa, cuando en el proyecto de música alguien lista, da de alta, edita o borra un artista. Primero, dónde corre cada cosa:</p>
+  </header>
+
+  <div class="where">
+    <div class="w-col"><span class="w-tag cli">Computadora del usuario</span><b>Navegador o Bruno</b><p>Piden páginas al servidor. El navegador dibuja el HTML que recibe; Bruno lo muestra crudo, con el código de estado. Ninguno tiene los datos ni el código Java.</p></div>
+    <div class="w-col srv"><span class="w-tag pres">Servidor (Tomcat)</span><b>Servlet + JSP = capa de presentación</b><p>El Servlet recibe el pedido y el JSP <em>fabrica</em> el HTML. Los dos corren en el servidor, junto con la lógica y la persistencia.</p></div>
+    <div class="w-col"><span class="w-tag db">Servidor de base de datos</span><b>MySQL</b><p>Guarda las tablas. Solo habla con Hibernate, por JDBC.</p></div>
+  </div>
+
+  <div class="tabs" role="tablist" aria-label="Operación">
+    <button class="tab" role="tab" data-op="listar" id="tab-listar">Listar <small>Leer</small></button>
+    <button class="tab" role="tab" data-op="alta" id="tab-alta">Alta <small>Crear</small></button>
+    <button class="tab" role="tab" data-op="editar" id="tab-editar">Editar <small>Modificar</small></button>
+    <button class="tab" role="tab" data-op="eliminar" id="tab-eliminar">Eliminar <small>Baja</small></button>
+    <button class="tab" role="tab" data-op="error" id="tab-error">Cuando hay un error</button>
+    <button class="tab" role="tab" data-op="bruno" id="tab-bruno">Probar con Bruno</button>
+  </div>
+
+  <div class="stage">
+    <div class="diagram">
+      <svg id="svg" viewBox="0 0 420 680" role="img" aria-label="Arriba, el Navegador en la computadora del usuario. En el medio, el servidor Tomcat con el Servlet, el JSP, ControladoraLogica, ControladoraPersistencia, ArtistaJpaController y EntityManager. Abajo, MySQL."></svg>
+      <div class="legend">
+        <span><i style="background:var(--muted)"></i>Cliente: navegador o Bruno</span>
+        <span><i style="background:var(--terra)"></i>Presentación: Servlet y JSP</span>
+        <span><i style="background:var(--gold)"></i>Lógica</span>
+        <span><i style="background:var(--teal)"></i>Persistencia</span>
+        <span><i style="background:var(--db)"></i>JPA y base</span>
+      </div>
+    </div>
+
+    <div class="panel" aria-live="polite">
+      <div class="meta">
+        <span class="counter" id="counter"></span>
+        <span class="dir" id="dir"></span>
+      </div>
+      <div class="steps" id="dots"></div>
+      <h2 id="title"></h2>
+      <p id="text"></p>
+      <div class="travel" id="travel">Lo que viaja: <b id="chip"></b></div>
+      <div class="file" id="file"></div>
+      <pre class="code" id="code"></pre>
+      <div class="note" id="note" hidden></div>
+      <div class="controls">
+        <button class="btn sec" id="prev">Anterior</button>
+        <button class="btn" id="next">Siguiente</button>
+        <button class="btn sec" id="play">Reproducir</button>
+      </div>
+    </div>
+  </div>
+
+  <section class="summary">
+    <h2>Las cuatro operaciones de un vistazo</h2>
+    <p>El camino es siempre el mismo. Cambia el método del EntityManager, el SQL que genera Hibernate y cómo responde el Servlet.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Operación</th><th>Servlet</th><th>HTTP</th><th>EntityManager</th><th>SQL que genera Hibernate</th><th>Respuesta</th></tr></thead>
+        <tbody>
+          <tr><td><b>Listar</b></td><td><code>SvArtistaListar</code></td><td>GET</td><td><code>createQuery</code> (JPQL)</td><td><code>SELECT</code></td><td><span class="pill fw">forward</span> a <code>artistas.jsp</code></td></tr>
+          <tr><td><b>Alta</b></td><td><code>SvArtistaCrear</code></td><td>POST</td><td><code>persist</code></td><td><code>INSERT</code></td><td><span class="pill rd">sendRedirect</span> al listado</td></tr>
+          <tr><td><b>Editar: mostrar</b></td><td><code>SvArtistaEditar</code></td><td>GET</td><td><code>find</code></td><td><code>SELECT ... WHERE id = ?</code></td><td><span class="pill fw">forward</span> a <code>editarArtista.jsp</code></td></tr>
+          <tr><td><b>Editar: guardar</b></td><td><code>SvArtistaEditar</code></td><td>POST</td><td><code>merge</code></td><td><code>UPDATE</code></td><td><span class="pill rd">sendRedirect</span> al listado</td></tr>
+          <tr><td><b>Eliminar</b></td><td><code>SvArtistaEliminar</code></td><td>POST</td><td><code>find</code> + <code>remove</code></td><td><code>DELETE</code></td><td><span class="pill rd">sendRedirect</span> al listado</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <h3 class="sub">Los códigos que vas a ver en Bruno</h3>
+    <div class="tablewrap">
+      <table class="codes">
+        <thead><tr><th>Código</th><th>Qué significa</th><th>Cuándo aparece</th></tr></thead>
+        <tbody>
+          <tr><td><span class="st ok">200</span> OK</td><td>El servidor respondió bien.</td><td>Al listar o al abrir el formulario de edición.</td></tr>
+          <tr><td><span class="st rd">302</span> Found</td><td>Redirección: "andá a otra URL".</td><td>Después de un alta, una edición o una baja, y también cuando hay un error que se maneja bien.</td></tr>
+          <tr><td><span class="st nf">404</span> Not Found</td><td>No existe nada en esa URL.</td><td>El Servlet no existe o el nombre no coincide con el <code>@WebServlet</code>.</td></tr>
+          <tr><td><span class="st er">500</span> Internal Server Error</td><td>Una excepción que nadie atrapó.</td><td>Nunca debería aparecer: hay que agregar el try-catch o la validación que falta.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="key">
+      <div><strong>forward</strong>El Servlet le pasa los datos a un JSP para <b>mostrar</b> una pantalla. Se usa al leer.</div>
+      <div><strong>sendRedirect</strong>El Servlet le dice al navegador "andá al listado". Se usa después de <b>guardar</b>, para que F5 no repita el alta.</div>
+      <div><strong>Cada capa habla solo con la de abajo</strong>El Servlet nunca toca el EntityManager. El JSP nunca llama a la lógica.</div>
+    </div>
+  </section>
+
+  <footer>Prof. Sebastián Muñoz y Prof. Mariano Eito — Instituto Técnico Ntra. Sra. de Fátima (A-893)</footer>
+</div>
+
+<script>
+(function(){
+  /* ---------- Nodos del diagrama ---------- */
+  var N = {
+    nav:  {x:150,y:44,  w:220,h:56, name:'Navegador',              sub:'en la compu del usuario',g:'cli'},
+    sv:   {x:150,y:160, w:220,h:56, name:'Servlet',                sub:'SvArtistaListar',        g:'pres'},
+    jsp:  {x:350,y:160, w:120,h:56, name:'JSP',                    sub:'artistas.jsp',           g:'pres'},
+    log:  {x:150,y:250, w:260,h:56, name:'ControladoraLogica',     sub:'reglas de negocio',      g:'log'},
+    per:  {x:150,y:340, w:260,h:56, name:'ControladoraPersistencia',sub:'reparte el pedido',     g:'per'},
+    jpa:  {x:150,y:430, w:260,h:56, name:'ArtistaJpaController',   sub:'usa el EntityManager',   g:'per'},
+    em:   {x:150,y:520, w:260,h:56, name:'EntityManager',          sub:'Hibernate traduce a SQL',g:'db'},
+    db:   {x:150,y:640, w:200,h:52, name:'MySQL',                  sub:'tabla artista',          g:'db'}
+  };
+  var BAR = {cli:'var(--muted)',pres:'var(--terra)',log:'var(--gold)',per:'var(--teal)',db:'var(--db)'};
+  var svg=document.getElementById('svg'), NS='http://www.w3.org/2000/svg';
+  function el(t,a,p){var e=document.createElementNS(NS,t);for(var k in a)e.setAttribute(k,a[k]);(p||svg).appendChild(e);return e;}
+
+  // máquinas
+  el('rect',{x:4,y:96,width:412,height:478,rx:14,class:'machine'});
+  el('text',{x:16,y:118,class:'machine-tx'}).textContent='SERVIDOR (TOMCAT)';
+  el('text',{x:404,y:118,'text-anchor':'end',class:'machine-sub'}).textContent='acá corre todo el Java';
+  el('text',{x:404,y:600,'text-anchor':'end',class:'machine-sub'}).textContent='servidor de base de datos';
+  // vía de fondo
+  el('path',{d:'M150 72 V612',class:'track'});
+  el('path',{d:'M260 160 H290',class:'track'});
+  el('path',{d:'M350 132 Q350 44 260 44',class:'track'});
+  var trailG=el('g',{}); var nodeG=el('g',{});
+  var nodeEls={};
+  Object.keys(N).forEach(function(k){
+    var n=N[k], g=el('g',{class:'node g-'+n.g},nodeG);
+    if(k==='db'){
+      el('path',{d:'M'+(n.x-n.w/2)+' '+(n.y-n.h/2+8)+' v'+(n.h-16)+' a'+(n.w/2)+' 9 0 0 0 '+n.w+' 0 v-'+(n.h-16),class:'n-box'},g);
+      el('ellipse',{cx:n.x,cy:n.y-n.h/2+8,rx:n.w/2,ry:9,class:'cyl-top'},g);
+      el('text',{x:n.x,y:n.y+8,'text-anchor':'middle',class:'n-name'},g).textContent=n.name;
+      el('text',{x:n.x,y:n.y+24,'text-anchor':'middle',class:'n-sub'},g).textContent=n.sub;
+    } else {
+      el('rect',{x:n.x-n.w/2,y:n.y-n.h/2,width:n.w,height:n.h,rx:10,class:'n-box'},g);
+      el('rect',{x:n.x-n.w/2,y:n.y-n.h/2,width:6,height:n.h,rx:3,fill:BAR[n.g],class:'n-bar'},g);
+      n.nameEl=el('text',{x:n.x+3,y:n.y-3,'text-anchor':'middle',class:'n-name'},g); n.nameEl.textContent=n.name;
+      n.subEl=el('text',{x:n.x+3,y:n.y+15,'text-anchor':'middle',class:'n-sub'},g); n.subEl.textContent=n.sub;
+    }
+    nodeEls[k]=g;
+  });
+  var tokenG=el('g',{});
+  var halo=el('circle',{r:16,class:'halo'},tokenG);
+  var token=el('circle',{r:10,class:'token'},tokenG);
+
+  /* ---------- Operaciones ---------- */
+  function H(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+  function code(s){ // resaltado mínimo, en una sola pasada
+    return H(s).replace(/(\/\/[^\n]*)|("[^"\n]*")|\b(public|return|new|if|throw|try|catch|for|int|void)\b|\b(Artista|List|Long|String|Exception|NumberFormatException)\b/g,
+      function(m,c,str,k,t){
+        if(c) return '<span class="c">'+c+'</span>';
+        if(str) return '<span class="s">'+str+'</span>';
+        if(k) return '<span class="k">'+k+'</span>';
+        return '<span class="t">'+t+'</span>';
+      });
+  }
+  var OPS={
+    listar:{sv:'SvArtistaListar',jsp:'artistas.jsp',steps:[
+      {p:['nav','sv'],chip:'GET /SvArtistaListar',t:'El usuario entra a "Artistas"',x:'El navegador, en la compu del usuario, le pide al servidor la URL del Servlet. El pedido sale de una máquina y llega a otra. Todavía no hay ninguna pantalla: primero hay que buscar los datos.',f:'artistas.jsp (el menú)',c:'<a href="SvArtistaListar">Artistas</a>'},
+      {p:['sv','log'],chip:'listarArtistas()',t:'El Servlet le pide los datos a la lógica',x:'El Servlet no sabe nada de bases de datos. Solo llama a la ControladoraLogica.',f:'SvArtistaListar.java (doGet)',c:'List<Artista> artistas = control.listarArtistas();'},
+      {p:['log','per'],chip:'buscarTodosLosArtistas()',t:'La lógica pasa el pedido',x:'Para leer no hay reglas que validar, así que la lógica lo pasa directo a la persistencia.',f:'ControladoraLogica.java',c:'public List<Artista> listarArtistas() {\n    return controlPersis.buscarTodosLosArtistas();\n}'},
+      {p:['per','jpa'],chip:'buscarTodos()',t:'La persistencia elige el JpaController',x:'Hay un JpaController por entidad. Como se piden artistas, va al de Artista.',f:'ControladoraPersistencia.java',c:'return artistaJpa.buscarTodos();'},
+      {p:['jpa','em'],chip:'SELECT a FROM Artista a',t:'El JpaController arma una consulta JPQL',x:'JPQL habla de clases, no de tablas: "Artista" es la clase.',f:'ArtistaJpaController.java',c:'return em.createQuery("SELECT a FROM Artista a", Artista.class)\n         .getResultList();'},
+      {p:['em','db'],chip:'select ... from Artista',t:'Hibernate lo traduce a SQL',x:'El EntityManager, que es Hibernate, convierte la consulta JPQL en SQL de MySQL y la manda por JDBC.',f:'Lo genera Hibernate',c:'select a.id, a.nombre, a.generoMusical,\n       a.nacionalidad, a.edad\nfrom Artista a'},
+      {p:['db','em'],chip:'3 filas',t:'La base devuelve filas',x:'MySQL responde con filas y columnas, como en 4°.',f:'Respuesta de MySQL',c:'1 | Gustavo Cerati | Rock     | Argentina | 55\n2 | Mercedes Sosa  | Folklore | Argentina | 74\n3 | Fito Páez      | Rock     | Argentina | 63'},
+      {p:['em','jpa'],chip:'List<Artista>',t:'Hibernate convierte cada fila en un objeto',x:'Esto es el ORM: las filas vuelven como objetos Artista. Nadie escribió rs.getString().',f:'',c:'// Fila 1 → new Artista(1, "Gustavo Cerati", "Rock", "Argentina", 55)\n// Fila 2 → new Artista(2, "Mercedes Sosa", ...)\n// Fila 3 → new Artista(3, "Fito Páez", ...)'},
+      {p:['jpa','per','log','sv'],chip:'List<Artista>',t:'La lista sube capa por capa',x:'Cada capa devuelve la lista a la de arriba, sin tocarla, hasta llegar al Servlet.',f:'SvArtistaListar.java',c:'List<Artista> artistas = control.listarArtistas();\n// ← acá llega la lista'},
+      {p:['sv','jsp'],chip:'forward',t:'El Servlet le pasa la lista al JSP',x:'Guarda la lista en el request con un nombre y hace forward. El JSP la va a buscar por ese nombre. Todo esto pasa adentro del servidor: el navegador todavía está esperando.',f:'SvArtistaListar.java',c:'request.setAttribute("artistas", artistas);\nrequest.getRequestDispatcher("/WEB-INF/vistas/artistas.jsp")\n       .forward(request, response);'},
+      {p:['jsp','nav'],chip:'HTML',t:'El JSP fabrica el HTML y lo manda al navegador',x:'El JSP se ejecuta en el servidor: recorre la lista y escribe una fila por cada artista. Lo que cruza al navegador es solo el resultado, HTML común.',f:'artistas.jsp (en el servidor)  →  HTML (en el navegador)',c:'<% for (Artista a : artistas) { %>\n  <tr><td><%= a.getNombre() %></td></tr>\n<% } %>\n\n// Lo que recibe el navegador:\n<tr><td>Gustavo Cerati</td></tr>\n<tr><td>Mercedes Sosa</td></tr>\n<tr><td>Fito Páez</td></tr>',n:'Probalo: en el listado, clic derecho → <b>Ver código fuente</b>. No vas a encontrar ningún <code>&lt;%</code>: el Java del JSP ya se ejecutó en el servidor. El navegador nunca ve el JSP.'}
+    ]},
+    alta:{sv:'SvArtistaCrear',jsp:'artistas.jsp',steps:[
+      {p:['nav','sv'],chip:'POST nombre=Gustavo Cerati…',t:'El usuario completa el formulario y guarda',x:'El formulario manda los datos como texto, cada uno con el nombre de su campo.',f:'artistas.jsp',c:'<form action="SvArtistaCrear" method="post">\n  <input name="nombre"> <input name="edad" type="number">\n  ...\n</form>'},
+      {p:['sv'],chip:'new Artista(...)',t:'El Servlet convierte los datos y arma el objeto',x:'Todo llega como texto. La edad hay que convertirla a número: si alguien manda letras, acá salta el error.',f:'SvArtistaCrear.java (doPost)',c:'String nombre = request.getParameter("nombre");\nint edad = Integer.parseInt(request.getParameter("edad"));\nArtista art = new Artista(nombre, genero, nacionalidad, edad);',n:'El artista todavía no tiene id: se lo va a dar la base.'},
+      {p:['sv','log'],chip:'crearArtista(art)',t:'El Servlet le pasa el artista a la lógica',x:'El Servlet no valida reglas de negocio: eso es trabajo de la lógica.',f:'SvArtistaCrear.java',c:'control.crearArtista(art);'},
+      {p:['log'],chip:'¿es válido?',t:'La lógica aplica las reglas de negocio',x:'Si algo no cumple las reglas, lanza una excepción y el artista nunca llega a la base.',f:'ControladoraLogica.java',c:'if (art.getNombre() == null || art.getNombre().isEmpty()) {\n    throw new Exception("El artista debe tener un nombre.");\n}\nif (art.getEdad() <= 0 || art.getEdad() > 120) {\n    throw new Exception("La edad debe estar entre 1 y 120.");\n}'},
+      {p:['log','per','jpa'],chip:'crear(art)',t:'Pasa la validación y baja a la persistencia',x:'La ControladoraPersistencia lo deriva al JpaController de Artista.',f:'ControladoraLogica.java → ControladoraPersistencia.java',c:'controlPersis.crearArtista(art);\n// ...\nartistaJpa.crear(art);'},
+      {p:['jpa','em'],chip:'persist(art)',t:'El JpaController abre una transacción y guarda',x:'La secretaria recibe el expediente. Hasta el commit, nada queda firme.',f:'ArtistaJpaController.java',c:'em.getTransaction().begin();\nem.persist(art);\nem.getTransaction().commit();'},
+      {p:['em','db'],chip:'INSERT INTO Artista …',t:'Hibernate genera el INSERT',x:'Con el commit, el EntityManager manda el SQL a MySQL.',f:'Lo genera Hibernate',c:'insert into Artista (edad, generoMusical, nacionalidad, nombre)\nvalues (55, \'Rock\', \'Argentina\', \'Gustavo Cerati\')'},
+      {p:['db','em','jpa','per','log','sv'],chip:'id = 7',t:'La base le asigna un id y todo vuelve al Servlet',x:'Con @GeneratedValue, MySQL genera el id y Hibernate lo carga en el objeto. Los métodos terminan y el control vuelve hasta el Servlet.',f:'',c:'// art.getId() ahora vale 7'},
+      {p:['sv','nav'],chip:'302 → SvArtistaListar',t:'El Servlet redirige al listado',x:'Después de guardar no se muestra una pantalla: se le dice al navegador que vaya al listado. Así, si el usuario aprieta F5, no se carga dos veces.',f:'SvArtistaCrear.java',c:'response.sendRedirect("SvArtistaListar");',n:'El navegador hace un pedido nuevo a SvArtistaListar, y arranca el recorrido de <button class="jump" data-go="listar">Listar</button>.'}
+    ]},
+    editar:{sv:'SvArtistaEditar',jsp:'editarArtista.jsp',steps:[
+      {p:['nav','sv'],chip:'GET /SvArtistaEditar?id=7',t:'Primera parte: mostrar el formulario',x:'El usuario toca "Editar". El id viaja en la URL.',f:'artistas.jsp',c:'<a href="SvArtistaEditar?id=<%= a.getId() %>">Editar</a>'},
+      {p:['sv','log','per','jpa'],chip:'buscarUnArtista(7)',t:'El Servlet pide ese artista',x:'El pedido baja por las capas igual que al listar, pero buscando uno solo.',f:'SvArtistaEditar.java (doGet)',c:'int id = Integer.parseInt(request.getParameter("id"));\nArtista art = control.buscarUnArtista(id);'},
+      {p:['jpa','em','db'],chip:'find(Artista.class, 7)',t:'find busca por clave primaria',x:'Hibernate lo traduce a un SELECT con WHERE por id.',f:'ArtistaJpaController.java  →  SQL',c:'return em.find(Artista.class, id);\n\n// select ... from Artista where id = 7'},
+      {p:['db','em','jpa','per','log','sv'],chip:'Artista {id: 7}',t:'El artista vuelve al Servlet',x:'Si no existiera, find devolvería null, y el Servlet tendría que avisar con un error en lugar de mostrar el formulario.',f:'',c:'if (art == null) {\n    // redirigir al listado con un mensaje de error\n}'},
+      {p:['sv','jsp','nav'],chip:'formulario completo',t:'El JSP muestra el formulario con los datos actuales',x:'Forward a editarArtista.jsp, que completa cada campo con el valor actual.',f:'SvArtistaEditar.java  →  editarArtista.jsp',c:'request.setAttribute("artista", art);\nrequest.getRequestDispatcher("/WEB-INF/vistas/editarArtista.jsp")\n       .forward(request, response);\n\n<input name="nombre" value="<%= a.getNombre() %>">'},
+      {p:['nav','sv'],chip:'POST id=7&edad=56…',t:'Segunda parte: guardar los cambios',x:'El usuario cambia la edad y guarda. El id viaja oculto en el formulario.',f:'editarArtista.jsp',c:'<form action="SvArtistaEditar" method="post">\n  <input type="hidden" name="id" value="<%= a.getId() %>">\n  ...'},
+      {p:['sv','log'],chip:'editarArtista(art)',t:'El Servlet arma el artista con los datos nuevos',x:'Es un objeto nuevo, armado con el id de siempre y los datos del formulario.',f:'SvArtistaEditar.java (doPost)',c:'Artista art = new Artista(nombre, genero, nacionalidad, edad);\nart.setId(id);\ncontrol.editarArtista(art);'},
+      {p:['log'],chip:'¿existe? ¿es válido?',t:'La lógica valida',x:'Primero que el artista exista. Después, las mismas reglas que en el alta.',f:'ControladoraLogica.java',c:'if (controlPersis.buscarArtista(art.getId()) == null) {\n    throw new Exception("No existe un artista con ese id.");\n}\n// + las mismas validaciones del alta'},
+      {p:['log','per','jpa','em'],chip:'merge(art)',t:'El JpaController usa merge',x:'Este objeto lo armó el Servlet: el EntityManager no lo conoce. merge lo toma y lo vuelve a vincular con su fila.',f:'ArtistaJpaController.java',c:'em.getTransaction().begin();\nem.merge(art);\nem.getTransaction().commit();',n:'Por eso es merge y no persist: persist sirve para objetos nuevos, que todavía no tienen fila en la base.'},
+      {p:['em','db'],chip:'UPDATE Artista …',t:'Hibernate genera el UPDATE',x:'Actualiza la fila que tiene ese id.',f:'Lo genera Hibernate',c:'update Artista\nset edad = 56, generoMusical = \'Rock\', ...\nwhere id = 7'},
+      {p:['db','em','jpa','per','log','sv','nav'],chip:'302 → SvArtistaListar',t:'Vuelve y redirige al listado',x:'Igual que en el alta: después de guardar, sendRedirect.',f:'SvArtistaEditar.java',c:'response.sendRedirect("SvArtistaListar");'}
+    ]},
+    eliminar:{sv:'SvArtistaEliminar',jsp:'artistas.jsp',steps:[
+      {p:['nav','sv'],chip:'POST id=7',t:'El usuario toca "Eliminar"',x:'El botón está dentro de un formulario chico que manda el id por POST.',f:'artistas.jsp',c:'<form action="SvArtistaEliminar" method="post">\n  <input type="hidden" name="id" value="<%= a.getId() %>">\n  <button>Eliminar</button>\n</form>'},
+      {p:['sv','log'],chip:'eliminarArtista(7)',t:'El Servlet le pasa el id a la lógica',x:'Para borrar alcanza con el id.',f:'SvArtistaEliminar.java (doPost)',c:'int id = Integer.parseInt(request.getParameter("id"));\ncontrol.eliminarArtista(id);'},
+      {p:['log'],chip:'¿existe?',t:'La lógica verifica que exista',x:'No se puede borrar lo que no está.',f:'ControladoraLogica.java',c:'if (controlPersis.buscarArtista(id) == null) {\n    throw new Exception("No existe un artista con ese id.");\n}'},
+      {p:['log','per','jpa','em'],chip:'find + remove',t:'El JpaController busca y después borra',x:'remove solo funciona con un objeto que el EntityManager tenga en su carpeta. Por eso primero lo trae con find, dentro de la misma transacción.',f:'ArtistaJpaController.java',c:'em.getTransaction().begin();\nArtista art = em.find(Artista.class, id);\nem.remove(art);\nem.getTransaction().commit();'},
+      {p:['em','db'],chip:'DELETE FROM Artista …',t:'Hibernate genera el DELETE',x:'La fila desaparece de la tabla.',f:'Lo genera Hibernate',c:'delete from Artista where id = 7'},
+      {p:['db','em','jpa','per','log','sv','nav'],chip:'302 → SvArtistaListar',t:'Vuelve y redirige al listado',x:'El listado ya no muestra al artista 7.',f:'SvArtistaEliminar.java',c:'response.sendRedirect("SvArtistaListar");'}
+    ]},
+    error:{sv:'SvArtistaCrear',jsp:'artistas.jsp',client:'Bruno',steps:[
+      {p:['nav','sv'],chip:'POST edad=abc',t:'Caso 1: un dato que no se puede convertir',x:'El formulario no deja escribir letras en la edad, pero Bruno sí. El servidor tiene que defenderse igual.',f:'Pedido desde Bruno',c:'POST /SvArtistaCrear\nnombre=Gustavo Cerati&edad=abc'},
+      {p:['sv'],chip:'NumberFormatException',t:'El error salta en el Servlet',x:'Integer.parseInt("abc") lanza una excepción. El try-catch la atrapa en la misma capa.',f:'SvArtistaCrear.java',c:'try {\n    int edad = Integer.parseInt(request.getParameter("edad"));\n    ...\n} catch (NumberFormatException e) {\n    String msg = URLEncoder.encode("La edad debe ser un número", StandardCharsets.UTF_8);\n    response.sendRedirect("SvArtistaListar?error=" + msg);\n}'},
+      {p:['sv','nav'],chip:'302 → ?error=…',t:'Redirige al listado con el mensaje',x:'La lógica y la base nunca se enteraron: el error se frenó en la primera capa. El JSP muestra el mensaje arriba de la tabla.',f:'artistas.jsp',c:'<% if (error != null) { %>\n  <div class="error"><%= error %></div>\n<% } %>'},
+      {p:['nav','sv','log'],chip:'POST nombre=(vacío)',t:'Caso 2: una regla de negocio que no se cumple',x:'Ahora el dato se puede convertir, pero el nombre está vacío. El pedido pasa el Servlet y llega a la lógica.',f:'Pedido desde Bruno',c:'POST /SvArtistaCrear\nnombre=&edad=55'},
+      {p:['log'],chip:'throw new Exception(...)',t:'La lógica lanza la excepción',x:'El if detecta el problema. El artista nunca baja a la persistencia.',f:'ControladoraLogica.java',c:'if (art.getNombre() == null || art.getNombre().isEmpty()) {\n    throw new Exception("El artista debe tener un nombre.");\n}'},
+      {p:['log','sv','nav'],chip:'302 → ?error=…',t:'El Servlet atrapa la excepción y redirige',x:'La excepción sube al Servlet, que la atrapa y manda el mensaje de la lógica al listado.',f:'SvArtistaCrear.java',c:'} catch (Exception e) {\n    String msg = URLEncoder.encode(e.getMessage(), StandardCharsets.UTF_8);\n    response.sendRedirect("SvArtistaListar?error=" + msg);\n}',n:'Cada error se frena en la capa que le corresponde: la conversión en el Servlet, las reglas en la lógica. En ningún caso el usuario ve un error del servidor.'}
+    ]}
+    ,bruno:{sv:'SvArtistaCrear',jsp:'artistas.jsp',client:'Bruno',steps:[
+      {p:['nav'],chip:'POST /SvArtistaCrear',t:'Armás el pedido en Bruno',x:'Elegís el método, la URL y los datos. Los campos se llaman igual que en el formulario del JSP, porque el Servlet los va a buscar por ese nombre.',f:'Alta artista.bru',c:'post {\n  url: http://localhost:8080/mi-proyecto/SvArtistaCrear\n  body: formUrlEncoded\n}\n\nbody:form-urlencoded {\n  nombre: Gustavo Cerati\n  generoMusical: Rock\n  nacionalidad: Argentina\n  edad: 55\n}'},
+      {p:['nav','sv'],chip:'POST nombre=Gustavo Cerati&edad=55…',t:'Para el Servlet, es igual que un formulario',x:'El Servlet no sabe si el pedido vino del navegador o de Bruno. Lee los mismos parámetros, de la misma forma.',f:'SvArtistaCrear.java',c:'String nombre = request.getParameter("nombre");\nint edad = Integer.parseInt(request.getParameter("edad"));'},
+      {p:['sv','log','per','jpa','em','db'],chip:'INSERT INTO Artista …',t:'El alta hace el recorrido de siempre',x:'Lógica, persistencia, Hibernate y MySQL trabajan igual que cuando el pedido viene del navegador.',f:'',c:'// validar → persistir → INSERT',n:'El detalle de cada paso está en la pestaña <button class="jump" data-go="alta">Alta</button>.'},
+      {p:['db','em','jpa','per','log','sv','nav'],chip:'302 → SvArtistaListar',t:'Bruno recibe la redirección',x:'Bruno muestra el código de estado y sigue la redirección solo, igual que haría el navegador.',f:'Lo que muestra Bruno: Headers',c:'HTTP/1.1 302 Found\nLocation: SvArtistaListar'},
+      {p:['nav','sv'],chip:'GET /SvArtistaListar',t:'Bruno pide el listado',x:'Es el pedido nuevo que provoca la redirección. Arranca el recorrido de Listar.'},
+      {p:['sv','jsp','nav'],chip:'200 OK + HTML',t:'Bruno muestra el HTML crudo',x:'Bruno no dibuja la tabla: muestra el HTML tal como lo fabricó el JSP, con el código 200. Ahí buscás si aparece el artista que diste de alta.',f:'Lo que muestra Bruno: Response',c:'<table>\n  <tr><td>1</td><td>Gustavo Cerati</td><td>Rock</td> ...</tr>\n</table>'},
+      {p:['nav','sv'],chip:'POST edad=abc',t:'Lo que el formulario no deja, Bruno sí',x:'En el formulario, la edad es un campo numérico y no acepta letras. En Bruno podés escribir cualquier cosa: así probás que el servidor se defiende solo, aunque alguien se saltee el formulario.',f:'Alta con edad inválida.bru',c:'body:form-urlencoded {\n  nombre: Gustavo Cerati\n  edad: abc\n}',n:'Qué pasa después está en la pestaña <button class="jump" data-go="error">Cuando hay un error</button>.'},
+      {p:['nav'],chip:'404 Not Found',t:'Si el Servlet no existe: 404',x:'Si la URL está mal escrita o el Servlet todavía no existe, Tomcat responde 404 y el pedido no llega a ninguna capa. Primero revisá que la URL coincida con el @WebServlet.',f:'SvArtistaCrear.java',c:'@WebServlet("/SvArtistaCrear")   // tiene que coincidir con la URL de Bruno'}
+    ]}
+  };
+
+  /* ---------- Estado y render ---------- */
+  var op='listar', i=0, playing=null, anim=null;
+  var reduce=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var $=function(id){return document.getElementById(id);};
+
+  function pt(k){return {x:N[k].x,y:N[k].y};}
+  function dirOf(p){
+    if(p.length<2) return 'queda';
+    var a=N[p[0]].y, b=N[p[p.length-1]].y;
+    if(p[p.length-1]==='jsp') return 'vuelta';
+    return b>a?'ida':(b<a?'vuelta':'ida');
+  }
+  function place(x,y){
+    token.setAttribute('cx',x); token.setAttribute('cy',y);
+    halo.setAttribute('cx',x); halo.setAttribute('cy',y);
+  }
+  // Punto de descanso: justo afuera del nodo de destino, del lado por donde llegó
+  function restPoint(p){
+    var b=N[p[p.length-1]];
+    if(p.length<2) return {x:b.x-b.w/2-12, y:b.y};
+    var a=N[p[p.length-2]], dx=a.x-b.x, dy=a.y-b.y;
+    var tx=dx?(b.w/2+14)/Math.abs(dx):Infinity, ty=dy?(b.h/2+14)/Math.abs(dy):Infinity, t=Math.min(tx,ty,1);
+    return {x:b.x+dx*t, y:b.y+dy*t};
+  }
+  function drawTrail(p,d){
+    while(trailG.firstChild) trailG.removeChild(trailG.firstChild);
+    if(p.length<2) return;
+    var dstr='M'+N[p[0]].x+' '+N[p[0]].y;
+    for(var j=1;j<p.length;j++) dstr+=' L'+N[p[j]].x+' '+N[p[j]].y;
+    el('path',{d:dstr,class:'trail '+d},trailG);
+  }
+  function move(p){
+    if(anim) cancelAnimationFrame(anim);
+    var pts=p.map(pt); pts[pts.length-1]=restPoint(p);
+    if(pts.length<2||reduce){var e=pts[pts.length-1]; place(e.x,e.y); return;}
+    var segs=[],total=0;
+    for(var j=1;j<pts.length;j++){var L=Math.hypot(pts[j].x-pts[j-1].x,pts[j].y-pts[j-1].y);segs.push(L);total+=L;}
+    var dur=Math.min(1400, 450+total*1.2), t0=null;
+    function f(ts){
+      if(!t0)t0=ts; var k=Math.min(1,(ts-t0)/dur); k=k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2;
+      var dist=k*total, j=0; while(j<segs.length-1&&dist>segs[j]){dist-=segs[j];j++;}
+      var r=segs[j]?dist/segs[j]:1, a=pts[j], b=pts[j+1];
+      place(a.x+(b.x-a.x)*r, a.y+(b.y-a.y)*r);
+      if(k<1) anim=requestAnimationFrame(f);
+    }
+    anim=requestAnimationFrame(f);
+  }
+  function render(animate){
+    var O=OPS[op], s=O.steps[i], d=dirOf(s.p);
+    N.sv.subEl.textContent=O.sv; N.jsp.subEl.textContent=O.jsp;
+    N.nav.nameEl.textContent=O.client||'Navegador'; N.nav.subEl.textContent=O.client?'programa para probar':'en la compu del usuario';
+    Object.keys(nodeEls).forEach(function(k){
+      var g=nodeEls[k], on=s.p.indexOf(k)>=0;
+      g.classList.toggle('active',k===s.p[s.p.length-1]);
+      g.classList.toggle('dim',!on);
+    });
+    drawTrail(s.p,d==='queda'?'ida':d);
+    if(animate) move(s.p); else {var e=restPoint(s.p); place(e.x,e.y);}
+    $('counter').textContent='Paso '+(i+1)+' de '+O.steps.length;
+    var dd=$('dir'); dd.className='dir '+d; dd.textContent=d==='ida'?'Baja (ida)':d==='vuelta'?'Sube (vuelta)':'Se queda en la capa';
+    $('title').textContent=s.t; $('text').textContent=s.x; $('chip').textContent=s.chip;
+    $('file').textContent=s.f||''; $('file').hidden=!s.f;
+    var cb=$('code'); if(s.c){cb.innerHTML=code(s.c); cb.hidden=false;} else {cb.innerHTML=''; cb.hidden=true;}
+    var nt=$('note'); if(s.n){nt.innerHTML=s.n; nt.hidden=false;} else nt.hidden=true;
+    $('prev').disabled=i===0; $('next').disabled=i===O.steps.length-1;
+    var dots=$('dots'); dots.innerHTML='';
+    O.steps.forEach(function(_,j){var b=document.createElement('button');b.className='dot'+(j<i?' done':'')+(j===i?' cur':'');b.setAttribute('aria-label','Ir al paso '+(j+1));b.onclick=function(){stop();i=j;render(true);};dots.appendChild(b);});
+    document.querySelectorAll('.tab').forEach(function(t){t.setAttribute('aria-selected',t.dataset.op===op?'true':'false');});
+  }
+  function stop(){if(playing){clearInterval(playing);playing=null;$('play').textContent='Reproducir';}}
+  function setOp(o){stop();op=o;i=0;render(true);try{history.replaceState(null,'','#'+o);}catch(e){}}
+
+  $('next').onclick=function(){stop();if(i<OPS[op].steps.length-1){i++;render(true);}};
+  $('prev').onclick=function(){stop();if(i>0){i--;render(true);}};
+  $('play').onclick=function(){
+    if(playing){stop();return;}
+    if(i===OPS[op].steps.length-1){i=0;render(true);}
+    $('play').textContent='Pausar';
+    playing=setInterval(function(){ if(i<OPS[op].steps.length-1){i++;render(true);} else stop(); },2600);
+  };
+  document.querySelectorAll('.tab').forEach(function(t){t.onclick=function(){setOp(t.dataset.op);};});
+  $('note').addEventListener('click',function(e){var b=e.target.closest('[data-go]');if(b)setOp(b.dataset.go);});
+  document.addEventListener('keydown',function(e){
+    if(e.target.closest('input,textarea'))return;
+    if(e.key==='ArrowRight')$('next').click(); if(e.key==='ArrowLeft')$('prev').click();
+  });
+  var h=(location.hash||'').slice(1); if(OPS[h]) op=h;
+  render(false);
+})();
+</script>
+
+</body></html>
